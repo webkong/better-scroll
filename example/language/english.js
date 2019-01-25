@@ -27,15 +27,22 @@ export default {
     picker: 'Picker',
     slide: 'Slide',
     startGuidance: 'Start Guidance',
+    fullPageVerticalSlide: 'Vertical Slide',
     freeScroll: 'Free Scroll',
     formList: 'Form List',
+    goodsList: 'Goods List',
+    navList: 'Navigation List',
+    infinity: 'Infinity Scroll',
     verticalScrollImg: 'vertical-scroll-en.jpeg',
     indexListImg: 'index-list.jpeg',
     pickerImg: 'picker-en.jpeg',
     slideImg: 'slide.jpeg',
     startGuidanceImg: 'full-page-slide.jpeg',
     freeScrollImg: 'free-scroll.jpeg',
-    formListImg: 'form-list-en.jpeg'
+    formListImg: 'form-list-en.jpeg',
+    goodsListImg: 'goods-list.jpeg',
+    navListImg: 'navigator-en.jpg',
+    infinityScrollImg: 'infinity-scroll.png'
   },
 
   normalScrollListPage: {
@@ -71,7 +78,13 @@ export default {
   },
 
   slidePage: {
-    desc: 'Slide is a typical component at mobile end, support horizontal move.'
+    desc: 'Slide is a typical component at mobile end, support horizontal move.',
+    click: 'click',
+    isAutoPlayTip: 'auto play',
+    isLoopTip: 'loop',
+    isShowDotTip: 'show dots',
+    changeData: 'change data',
+    pageTurn: 'page turn'
   },
 
   fullPageSlideComponent: {
@@ -86,5 +99,11 @@ export default {
     desc: 'To use form in better-scroll, you need to make sure the option click is configured as false, since some native element events will be prevented when click is true. And in this situation, we recommend to handle click by listening tap event.',
     previousTxt: 'No.',
     followingTxt: ' option'
+  },
+  navigatorPage: {
+    desc: 'Navigator supports horizontal move. According to the menu tab which your choice，contents what you want to render can be shown in \n' +
+    'the blank area',
+    txtPart1: 'The corresponding contents of the ',
+    txtPart2: ' can be shown in this area'
   }
 }

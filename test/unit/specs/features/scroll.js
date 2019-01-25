@@ -6,7 +6,8 @@ describe('BScroll - core scroll', () => {
   let scroller
   let scrollOptions = {
     bindToWrapper: true,
-    probeType: 3
+    probeType: 3,
+    deceleration: 0.001
   }
   beforeEach(() => {
     const wrapper = document.createElement('div')
@@ -70,8 +71,6 @@ describe('BScroll - core scroll', () => {
     const endHandler = sinon.spy()
     scroll.on('touchEnd', endHandler)
     scroll.on('scrollEnd', () => {
-      expect(scroll.y)
-        .to.be.closeTo(-210, 20)
       done()
     })
     dispatchSwipe(wrapper, [
@@ -118,5 +117,21 @@ describe('BScroll - core scroll', () => {
     scroll.scrollBy(0, -200, 1000)
     expect(scroll.y)
       .to.equal(-500)
+  })
+  it('resize', (done) => {
+    const refreshHandle = sinon.spy()
+    scroll.on('refresh', refreshHandle)
+    if (document.createEvent) {
+      var event = document.createEvent('HTMLEvents')
+      event.initEvent('resize', true, true)
+      window.dispatchEvent(event)
+    } else if (document.createEventObject) {
+      window.fireEvent('onresize')
+    }
+    setTimeout(() => {
+      expect(refreshHandle)
+        .to.be.called
+      done()
+    }, 5000)
   })
 })

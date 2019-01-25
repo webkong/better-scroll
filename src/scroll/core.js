@@ -4,13 +4,25 @@ import {
   preventDefaultException,
   tap,
   click,
+  dblclick,
   style,
-  offset
+  offset,
+  offsetToBody
 } from '../util/dom'
 import { ease } from '../util/ease'
 import { momentum } from '../util/momentum'
 import { requestAnimationFrame, cancelAnimationFrame } from '../util/raf'
-import { getNow } from '../util/lang'
+import { getNow, isUndef } from '../util/lang'
+import {
+  DIRECTION_DOWN,
+  DIRECTION_UP,
+  DIRECTION_LEFT,
+  DIRECTION_RIGHT,
+  PROBE_DEBOUNCE,
+  PROBE_REALTIME
+} from '../util/const'
+import { isAndroid } from '../util/env'
+import { assert } from '../util/debug'
 
 export function coreMixin(BScroll) {
   BScroll.prototype._start = function (e) {
@@ -27,6 +39,9 @@ export function coreMixin(BScroll) {
 
     if (this.options.preventDefault && !preventDefaultException(e.target, this.options.preventDefaultException)) {
       e.preventDefault()
+    }
+    if (this.options.stopPropagation) {
+      e.stopPropagation()
     }
 
     this.moved = false
@@ -67,6 +82,9 @@ export function coreMixin(BScroll) {
     if (this.options.preventDefault) {
       e.preventDefault()
     }
+    if (this.options.stopPropagation) {
+      e.stopPropagation()
+    }
 
     let point = e.touches ? e.touches[0] : e
     let deltaX = point.pageX - this.pointX
@@ -91,11 +109,11 @@ export function coreMixin(BScroll) {
     // If you are scrolling in one direction lock the other
     if (!this.directionLocked && !this.options.freeScroll) {
       if (absDistX > absDistY + this.options.directionLockThreshold) {
-        this.directionLocked = 'h'		// lock horizontally
+        this.directionLocked = 'h' // lock horizontally
       } else if (absDistY >= absDistX + this.options.directionLockThreshold) {
-        this.directionLocked = 'v'		// lock vertically
+        this.directionLocked = 'v' // lock vertically
       } else {
-        this.directionLocked = 'n'		// no lock
+        this.directionLocked = 'n' // no lock
       }
     }
 
@@ -119,25 +137,36 @@ export function coreMixin(BScroll) {
 
     deltaX = this.hasHorizontalScroll ? deltaX : 0
     deltaY = this.hasVerticalScroll ? deltaY : 0
-    this.movingDirectionX = deltaX > 0 ? -1 : deltaX < 0 ? 1 : 0
-    this.movingDirectionY = deltaY > 0 ? -1 : deltaY < 0 ? 1 : 0
+    this.movingDirectionX = deltaX > 0 ? DIRECTION_RIGHT : deltaX < 0 ? DIRECTION_LEFT : 0
+    this.movingDirectionY = deltaY > 0 ? DIRECTION_DOWN : deltaY < 0 ? DIRECTION_UP : 0
 
     let newX = this.x + deltaX
     let newY = this.y + deltaY
 
+    let top = false
+    let bottom = false
+    let left = false
+    let right = false
     // Slow down or stop if outside of the boundaries
-    if (newX > 0 || newX < this.maxScrollX) {
-      if (this.options.bounce) {
+    const bounce = this.options.bounce
+    if (bounce !== false) {
+      top = bounce.top === undefined ? true : bounce.top
+      bottom = bounce.bottom === undefined ? true : bounce.bottom
+      left = bounce.left === undefined ? true : bounce.left
+      right = bounce.right === undefined ? true : bounce.right
+    }
+    if (newX > this.minScrollX || newX < this.maxScrollX) {
+      if ((newX > this.minScrollX && left) || (newX < this.maxScrollX && right)) {
         newX = this.x + deltaX / 3
       } else {
-        newX = newX > 0 ? 0 : this.maxScrollX
+        newX = newX > this.minScrollX ? this.minScrollX : this.maxScrollX
       }
     }
-    if (newY > 0 || newY < this.maxScrollY) {
-      if (this.options.bounce) {
+    if (newY > this.minScrollY || newY < this.maxScrollY) {
+      if ((newY > this.minScrollY && top) || (newY < this.maxScrollY && bottom)) {
         newY = this.y + deltaY / 3
       } else {
-        newY = newY > 0 ? 0 : this.maxScrollY
+        newY = newY > this.minScrollY ? this.minScrollY : this.maxScrollY
       }
     }
 
@@ -153,7 +182,7 @@ export function coreMixin(BScroll) {
       this.startX = this.x
       this.startY = this.y
 
-      if (this.options.probeType === 1) {
+      if (this.options.probeType === PROBE_DEBOUNCE) {
         this.trigger('scroll', {
           x: this.x,
           y: this.y
@@ -161,7 +190,7 @@ export function coreMixin(BScroll) {
       }
     }
 
-    if (this.options.probeType > 1) {
+    if (this.options.probeType > PROBE_DEBOUNCE) {
       this.trigger('scroll', {
         x: this.x,
         y: this.y
@@ -189,17 +218,34 @@ export function coreMixin(BScroll) {
     if (this.options.preventDefault && !preventDefaultException(e.target, this.options.preventDefaultException)) {
       e.preventDefault()
     }
+    if (this.options.stopPropagation) {
+      e.stopPropagation()
+    }
 
     this.trigger('touchEnd', {
       x: this.x,
       y: this.y
     })
 
-    let preventClick = this.stopFromTransition
-    this.stopFromTransition = false
+    this.isInTransition = false
+
+    // ensures that the last position is rounded
+    let newX = Math.round(this.x)
+    let newY = Math.round(this.y)
+
+    let deltaX = newX - this.absStartX
+    let deltaY = newY - this.absStartY
+    this.directionX = deltaX > 0 ? DIRECTION_RIGHT : deltaX < 0 ? DIRECTION_LEFT : 0
+    this.directionY = deltaY > 0 ? DIRECTION_DOWN : deltaY < 0 ? DIRECTION_UP : 0
 
     // if configure pull down refresh, check it first
     if (this.options.pullDownRefresh && this._checkPullDown()) {
+      return
+    }
+
+    // check if it is a click operation
+    if (this._checkClick(e)) {
+      this.trigger('scrollCancel')
       return
     }
 
@@ -207,44 +253,10 @@ export function coreMixin(BScroll) {
     if (this.resetPosition(this.options.bounceTime, ease.bounce)) {
       return
     }
-    this.isInTransition = false
-    // ensures that the last position is rounded
-    let newX = Math.round(this.x)
-    let newY = Math.round(this.y)
 
-    // we scrolled less than 15 pixels
-    if (!this.moved) {
-      if (this.options.wheel) {
-        if (this.target && this.target.className === 'wheel-scroll') {
-          let index = Math.abs(Math.round(newY / this.itemHeight))
-          let _offset = Math.round((this.pointY + offset(this.target).top - this.itemHeight / 2) / this.itemHeight)
-          this.target = this.items[index + _offset]
-        }
-        this.scrollToElement(this.target, this.options.wheel.adjustTime || 400, true, true, ease.swipe)
-      } else {
-        if (!preventClick) {
-          if (this.options.tap) {
-            tap(e, this.options.tap)
-          }
-
-          if (this.options.click) {
-            click(e)
-          }
-        }
-      }
-      this.trigger('scrollCancel')
-      return
-    }
-
-    this.scrollTo(newX, newY)
-
-    let deltaX = newX - this.absStartX
-    let deltaY = newY - this.absStartY
-    this.directionX = deltaX > 0 ? -1 : deltaX < 0 ? 1 : 0
-    this.directionY = deltaY > 0 ? -1 : deltaY < 0 ? 1 : 0
+    this._translate(newX, newY)
 
     this.endTime = getNow()
-
     let duration = this.endTime - this.startTime
     let absDistX = Math.abs(newX - this.startX)
     let absDistY = Math.abs(newY - this.startY)
@@ -258,9 +270,22 @@ export function coreMixin(BScroll) {
     let time = 0
     // start momentum animation if needed
     if (this.options.momentum && duration < this.options.momentumLimitTime && (absDistY > this.options.momentumLimitDistance || absDistX > this.options.momentumLimitDistance)) {
-      let momentumX = this.hasHorizontalScroll ? momentum(this.x, this.startX, duration, this.maxScrollX, this.options.bounce ? this.wrapperWidth : 0, this.options)
+      let top = false
+      let bottom = false
+      let left = false
+      let right = false
+      const bounce = this.options.bounce
+      if (bounce !== false) {
+        top = bounce.top === undefined ? true : bounce.top
+        bottom = bounce.bottom === undefined ? true : bounce.bottom
+        left = bounce.left === undefined ? true : bounce.left
+        right = bounce.right === undefined ? true : bounce.right
+      }
+      const wrapperWidth = ((this.directionX === DIRECTION_RIGHT && left) || (this.directionX === DIRECTION_LEFT && right)) ? this.wrapperWidth : 0
+      const wrapperHeight = ((this.directionY === DIRECTION_DOWN && top) || (this.directionY === DIRECTION_UP && bottom)) ? this.wrapperHeight : 0
+      let momentumX = this.hasHorizontalScroll ? momentum(this.x, this.startX, duration, this.maxScrollX, this.minScrollX, wrapperWidth, this.options)
         : {destination: newX, duration: 0}
-      let momentumY = this.hasVerticalScroll ? momentum(this.y, this.startY, duration, this.maxScrollY, this.options.bounce ? this.wrapperHeight : 0, this.options)
+      let momentumY = this.hasVerticalScroll ? momentum(this.y, this.startY, duration, this.maxScrollY, this.minScrollY, wrapperHeight, this.options)
         : {destination: newY, duration: 0}
       newX = momentumX.destination
       newY = momentumY.destination
@@ -278,21 +303,21 @@ export function coreMixin(BScroll) {
       let snap = this._nearestSnap(newX, newY)
       this.currentPage = snap
       time = this.options.snapSpeed || Math.max(
-          Math.max(
-            Math.min(Math.abs(newX - snap.x), 1000),
-            Math.min(Math.abs(newY - snap.y), 1000)
-          ), 300)
+        Math.max(
+          Math.min(Math.abs(newX - snap.x), 1000),
+          Math.min(Math.abs(newY - snap.y), 1000)
+        ), 300)
       newX = snap.x
       newY = snap.y
 
       this.directionX = 0
       this.directionY = 0
-      easing = ease.bounce
+      easing = this.options.snap.easing || ease.bounce
     }
 
     if (newX !== this.x || newY !== this.y) {
       // change easing function when scroller goes out of the boundaries
-      if (newX > 0 || newX < this.maxScrollX || newY > 0 || newY < this.maxScrollY) {
+      if (newX > this.minScrollX || newX < this.maxScrollX || newY > this.minScrollY || newY < this.maxScrollY) {
         easing = ease.swipeBounce
       }
       this.scrollTo(newX, newY, time, easing)
@@ -300,7 +325,7 @@ export function coreMixin(BScroll) {
     }
 
     if (this.options.wheel) {
-      this.selectedIndex = Math.abs(this.y / this.itemHeight) | 0
+      this.selectedIndex = Math.round(Math.abs(this.y / this.itemHeight))
     }
     this.trigger('scrollEnd', {
       x: this.x,
@@ -308,11 +333,56 @@ export function coreMixin(BScroll) {
     })
   }
 
+  BScroll.prototype._checkClick = function (e) {
+    // when in the process of pulling down, it should not prevent click
+    let preventClick = this.stopFromTransition && !this.pulling
+    this.stopFromTransition = false
+
+    // we scrolled less than 15 pixels
+    if (!this.moved) {
+      if (this.options.wheel) {
+        if (this.target && this.target.classList.contains(this.options.wheel.wheelWrapperClass)) {
+          let index = Math.abs(Math.round(this.y / this.itemHeight))
+          let _offset = Math.round((this.pointY + offsetToBody(this.wrapper).top - this.wrapperHeight / 2) / this.itemHeight)
+          this.target = this.items[index + _offset]
+        }
+        this.scrollToElement(this.target, this.options.wheel.adjustTime || 400, true, true, ease.swipe)
+        return true
+      } else {
+        if (!preventClick) {
+          const _dblclick = this.options.dblclick
+          let dblclickTrigged = false
+          if (_dblclick && this.lastClickTime) {
+            const {delay = 300} = _dblclick
+            if (getNow() - this.lastClickTime < delay) {
+              dblclickTrigged = true
+              dblclick(e)
+            }
+          }
+          if (this.options.tap) {
+            tap(e, this.options.tap)
+          }
+
+          if (this.options.click && !preventDefaultException(e.target, this.options.preventDefaultException)) {
+            click(e)
+          }
+          this.lastClickTime = dblclickTrigged ? null : getNow()
+          return true
+        }
+        return false
+      }
+    }
+    return false
+  }
+
   BScroll.prototype._resize = function () {
     if (!this.enabled) {
       return
     }
-
+    // fix a scroll problem under Android condition
+    if (isAndroid) {
+      this.wrapper.scrollTop = 0
+    }
     clearTimeout(this.resizeTimeout)
     this.resizeTimeout = setTimeout(() => {
       this.refresh()
@@ -326,17 +396,14 @@ export function coreMixin(BScroll) {
     let me = this
 
     function probe() {
-      if (!me.isInTransition) {
-        return
-      }
       let pos = me.getComputedPosition()
       me.trigger('scroll', pos)
+      if (!me.isInTransition) {
+        me.trigger('scrollEnd', pos)
+        return
+      }
       me.probeTimer = requestAnimationFrame(probe)
     }
-  }
-
-  BScroll.prototype._transitionProperty = function (property = 'transform') {
-    this.scrollerStyle[style.transitionProperty] = property
   }
 
   BScroll.prototype._transitionTime = function (time = 0) {
@@ -377,18 +444,25 @@ export function coreMixin(BScroll) {
     }
 
     this._transitionTime()
-    if (!this.pulling && !this.resetPosition(this.options.bounceTime, ease.bounce)) {
+    const needReset = !this.pulling || this.movingDirectionY === DIRECTION_UP
+    if (needReset && !this.resetPosition(this.options.bounceTime, ease.bounce)) {
       this.isInTransition = false
-      this.trigger('scrollEnd', {
-        x: this.x,
-        y: this.y
-      })
+      if (this.options.probeType !== PROBE_REALTIME) {
+        this.trigger('scrollEnd', {
+          x: this.x,
+          y: this.y
+        })
+      }
     }
   }
 
-  BScroll.prototype._translate = function (x, y) {
+  BScroll.prototype._translate = function (x, y, scale) {
+    assert(!isUndef(x) && !isUndef(y), 'Translate x or y is null or undefined.')
+    if (isUndef(scale)) {
+      scale = this.scale
+    }
     if (this.options.useTransform) {
-      this.scrollerStyle[style.transform] = `translate(${x}px,${y}px)${this.translateZ}`
+      this.scrollerStyle[style.transform] = `translate(${x}px,${y}px) scale(${scale})${this.translateZ}`
     } else {
       x = Math.round(x)
       y = Math.round(y)
@@ -406,6 +480,7 @@ export function coreMixin(BScroll) {
 
     this.x = x
     this.y = y
+    this.setScale(scale)
 
     if (this.indicators) {
       for (let i = 0; i < this.indicators.length; i++) {
@@ -418,6 +493,8 @@ export function coreMixin(BScroll) {
     let me = this
     let startX = this.x
     let startY = this.y
+    let startScale = this.lastScale
+    let destScale = this.scale
     let startTime = getNow()
     let destTime = startTime + duration
 
@@ -426,7 +503,12 @@ export function coreMixin(BScroll) {
 
       if (now >= destTime) {
         me.isAnimating = false
-        me._translate(destX, destY)
+        me._translate(destX, destY, destScale)
+
+        me.trigger('scroll', {
+          x: me.x,
+          y: me.y
+        })
 
         if (!me.pulling && !me.resetPosition(me.options.bounceTime)) {
           me.trigger('scrollEnd', {
@@ -440,17 +522,18 @@ export function coreMixin(BScroll) {
       let easing = easingFn(now)
       let newX = (destX - startX) * easing + startX
       let newY = (destY - startY) * easing + startY
+      let newScale = (destScale - startScale) * easing + startScale
 
-      me._translate(newX, newY)
+      me._translate(newX, newY, newScale)
 
       if (me.isAnimating) {
         me.animateTimer = requestAnimationFrame(step)
       }
 
-      if (me.options.probeType === 3) {
+      if (me.options.probeType === PROBE_REALTIME) {
         me.trigger('scroll', {
-          x: this.x,
-          y: this.y
+          x: me.x,
+          y: me.y
         })
       }
     }
@@ -468,25 +551,42 @@ export function coreMixin(BScroll) {
   }
 
   BScroll.prototype.scrollTo = function (x, y, time = 0, easing = ease.bounce) {
+    const isMoved = this.x !== x || this.y !== y
+    // an useless scroll
+    if (!isMoved) return
+
     this.isInTransition = this.options.useTransition && time > 0 && (x !== this.x || y !== this.y)
 
     if (!time || this.options.useTransition) {
-      this._transitionProperty()
       this._transitionTimingFunction(easing.style)
       this._transitionTime(time)
       this._translate(x, y)
 
-      if (time && this.options.probeType === 3) {
+      if (time && this.options.probeType === PROBE_REALTIME) {
         this._startProbe()
+      }
+      if (!time) {
+        this.trigger('scroll', {
+          x,
+          y
+        })
+        // force reflow to put everything in position
+        this._reflow = document.body.offsetHeight
+        if (!this.resetPosition(this.options.bounceTime, ease.bounce)) {
+          this.trigger('scrollEnd', {
+            x,
+            y
+          })
+        }
       }
 
       if (this.options.wheel) {
-        if (y > 0) {
+        if (y > this.minScrollY) {
           this.selectedIndex = 0
         } else if (y < this.maxScrollY) {
           this.selectedIndex = this.items.length - 1
         } else {
-          this.selectedIndex = Math.abs(y / this.itemHeight) | 0
+          this.selectedIndex = Math.round(Math.abs(y / this.itemHeight))
         }
       }
     } else {
@@ -500,7 +600,7 @@ export function coreMixin(BScroll) {
     }
     el = el.nodeType ? el : this.scroller.querySelector(el)
 
-    if (this.options.wheel && el.className !== 'wheel-item') {
+    if (this.options.wheel && !el.classList.contains(this.options.wheel.wheelItemClass)) {
       return
     }
 
@@ -518,8 +618,8 @@ export function coreMixin(BScroll) {
 
     pos.left -= offsetX || 0
     pos.top -= offsetY || 0
-    pos.left = pos.left > 0 ? 0 : pos.left < this.maxScrollX ? this.maxScrollX : pos.left
-    pos.top = pos.top > 0 ? 0 : pos.top < this.maxScrollY ? this.maxScrollY : pos.top
+    pos.left = pos.left > this.minScrollX ? this.minScrollX : pos.left < this.maxScrollX ? this.maxScrollX : pos.left
+    pos.top = pos.top > this.minScrollY ? this.minScrollY : pos.top < this.maxScrollY ? this.maxScrollY : pos.top
 
     if (this.options.wheel) {
       pos.top = Math.round(pos.top / this.itemHeight) * this.itemHeight
@@ -530,16 +630,18 @@ export function coreMixin(BScroll) {
 
   BScroll.prototype.resetPosition = function (time = 0, easeing = ease.bounce) {
     let x = this.x
-    if (!this.hasHorizontalScroll || x > 0) {
-      x = 0
-    } else if (x < this.maxScrollX) {
+    let roundX = Math.round(x)
+    if (!this.hasHorizontalScroll || roundX > this.minScrollX) {
+      x = this.minScrollX
+    } else if (roundX < this.maxScrollX) {
       x = this.maxScrollX
     }
 
     let y = this.y
-    if (!this.hasVerticalScroll || y > 0) {
-      y = 0
-    } else if (y < this.maxScrollY) {
+    let roundY = Math.round(y)
+    if (!this.hasVerticalScroll || roundY > this.minScrollY) {
+      y = this.minScrollY
+    } else if (roundY < this.maxScrollY) {
       y = this.maxScrollY
     }
 
@@ -575,6 +677,7 @@ export function coreMixin(BScroll) {
   BScroll.prototype.stop = function () {
     if (this.options.useTransition && this.isInTransition) {
       this.isInTransition = false
+      cancelAnimationFrame(this.probeTimer)
       let pos = this.getComputedPosition()
       this._translate(pos.x, pos.y)
       if (this.options.wheel) {
@@ -588,6 +691,7 @@ export function coreMixin(BScroll) {
       this.stopFromTransition = true
     } else if (!this.options.useTransition && this.isAnimating) {
       this.isAnimating = false
+      cancelAnimationFrame(this.animateTimer)
       this.trigger('scrollEnd', {
         x: this.x,
         y: this.y
@@ -597,15 +701,15 @@ export function coreMixin(BScroll) {
   }
 
   BScroll.prototype.destroy = function () {
+    this.destroyed = true
+    this.trigger('destroy')
+    if (this.options.useTransition) {
+      cancelAnimationFrame(this.probeTimer)
+    } else {
+      cancelAnimationFrame(this.animateTimer)
+    }
     this._removeDOMEvents()
     // remove custom events
     this._events = {}
-
-    if (this.options.scrollbar) {
-      this._removeScrollBars()
-    }
-
-    this.destroyed = true
-    this.trigger('destroy')
   }
 }

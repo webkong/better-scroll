@@ -38,6 +38,14 @@
       click: {
         type: Boolean,
         default: true
+      },
+      threshold: {
+        type: Number,
+        default: 0.3
+      },
+      speed: {
+        type: Number,
+        default: 400
       }
     },
     data() {
@@ -47,17 +55,7 @@
       }
     },
     mounted() {
-      setTimeout(() => {
-        this._setSlideWidth()
-        if (this.showDot) {
-          this._initDots()
-        }
-        this._initSlide()
-
-        if (this.autoPlay) {
-          this._play()
-        }
-      }, 20)
+      this.update()
 
       window.addEventListener('resize', () => {
         if (!this.slide || !this.slide.enabled) {
@@ -82,13 +80,7 @@
       }
       this.slide.enable()
       let pageIndex = this.slide.getCurrentPage().pageX
-      if (pageIndex > this.dots.length) {
-        pageIndex = pageIndex % this.dots.length
-      }
       this.slide.goToPage(pageIndex, 0, 0)
-      if (this.loop) {
-        pageIndex -= 1
-      }
       this.currentPageIndex = pageIndex
       if (this.autoPlay) {
         this._play()
@@ -103,12 +95,36 @@
       clearTimeout(this.timer)
     },
     methods: {
+      update() {
+        if (this.slide) {
+          this.slide.destroy()
+        }
+        this.$nextTick(() => {
+          this.init()
+        })
+      },
       refresh() {
         this._setSlideWidth(true)
         this.slide.refresh()
       },
+      prev() {
+        this.slide.prev()
+      },
       next() {
         this.slide.next()
+      },
+      init() {
+        clearTimeout(this.timer)
+        this.currentPageIndex = 0
+        this._setSlideWidth()
+        if (this.showDot) {
+          this._initDots()
+        }
+        this._initSlide()
+
+        if (this.autoPlay) {
+          this._play()
+        }
       },
       _setSlideWidth(isResize) {
         this.children = this.$refs.slideGroup.children
@@ -128,20 +144,24 @@
         this.$refs.slideGroup.style.width = width + 'px'
       },
       _initSlide() {
+        console.log(this.threshold)
         this.slide = new BScroll(this.$refs.slide, {
           scrollX: true,
+          scrollY: false,
           momentum: false,
           snap: {
             loop: this.loop,
-            threshold: 0.3,
-            speed: 400
+            threshold: this.threshold,
+            speed: this.speed
           },
+          bounce: false,
+          stopPropagation: true,
           click: this.click
         })
 
         this.slide.on('scrollEnd', this._onScrollEnd)
 
-        this.slide.on('touchend', () => {
+        this.slide.on('touchEnd', () => {
           if (this.autoPlay) {
             this._play()
           }
@@ -155,9 +175,6 @@
       },
       _onScrollEnd() {
         let pageIndex = this.slide.getCurrentPage().pageX
-        if (this.loop) {
-          pageIndex -= 1
-        }
         this.currentPageIndex = pageIndex
         if (this.autoPlay) {
           this._play()
@@ -167,11 +184,24 @@
         this.dots = new Array(this.children.length)
       },
       _play() {
-        let pageIndex = this.slide.getCurrentPage().pageX + 1
         clearTimeout(this.timer)
         this.timer = setTimeout(() => {
-          this.slide.goToPage(pageIndex, 0, 400)
+          this.slide.next()
         }, this.interval)
+      }
+    },
+    watch: {
+      loop() {
+        this.update()
+      },
+      autoPlay() {
+        this.update()
+      },
+      speed() {
+        this.update()
+      },
+      threshold() {
+        this.update()
       }
     }
   }

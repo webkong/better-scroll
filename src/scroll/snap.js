@@ -1,5 +1,7 @@
-import { getRect, prepend } from '../util/dom'
+import { getRect, prepend, removeChild } from '../util/dom'
 import { ease } from '../util/ease'
+import { extend } from '../util/lang'
+import { warn } from '../util/debug'
 
 export function snapMixin(BScroll) {
   BScroll.prototype._initSnap = function () {
@@ -8,9 +10,12 @@ export function snapMixin(BScroll) {
 
     if (snap.loop) {
       let children = this.scroller.children
-      if (children.length > 0) {
+      if (children.length > 1) {
         prepend(children[children.length - 1].cloneNode(true), this.scroller)
         this.scroller.appendChild(children[1].cloneNode(true))
+      } else {
+        // Loop does not make any sense if there is only one child.
+        snap.loop = false
       }
     }
 
@@ -99,10 +104,13 @@ export function snapMixin(BScroll) {
         }
       }
 
-      let initPage = snap.loop ? 1 : 0
-      this.goToPage(this.currentPage.pageX || initPage, this.currentPage.pageY || 0, 0)
+      this._checkSnapLoop()
 
-      // Update snap threshold if needed
+      let initPageX = snap._loopX ? 1 : 0
+      let initPageY = snap._loopY ? 1 : 0
+      this._goToPage(this.currentPage.pageX || initPageX, this.currentPage.pageY || initPageY, 0)
+
+      // Update snap threshold if needed.
       const snapThreshold = snap.threshold
       if (snapThreshold % 1 === 0) {
         this.snapThresholdX = snapThreshold
@@ -115,11 +123,20 @@ export function snapMixin(BScroll) {
 
     this.on('scrollEnd', () => {
       if (snap.loop) {
-        if (this.currentPage.pageX === 0) {
-          this.goToPage(this.pages.length - 2, this.currentPage.pageY, 0)
-        }
-        if (this.currentPage.pageX === this.pages.length - 1) {
-          this.goToPage(1, this.currentPage.pageY, 0)
+        if (snap._loopX) {
+          if (this.currentPage.pageX === 0) {
+            this._goToPage(this.pages.length - 2, this.currentPage.pageY, 0)
+          }
+          if (this.currentPage.pageX === this.pages.length - 1) {
+            this._goToPage(1, this.currentPage.pageY, 0)
+          }
+        } else {
+          if (this.currentPage.pageY === 0) {
+            this._goToPage(this.currentPage.pageX, this.pages[0].length - 2, 0)
+          }
+          if (this.currentPage.pageY === this.pages[0].length - 1) {
+            this._goToPage(this.currentPage.pageX, 1, 0)
+          }
         }
       }
     })
@@ -132,12 +149,40 @@ export function snapMixin(BScroll) {
               Math.min(Math.abs(this.y - this.startY), 1000)
             ), 300)
 
-        this.goToPage(
+        this._goToPage(
           this.currentPage.pageX + this.directionX,
           this.currentPage.pageY + this.directionY,
           time
         )
       })
+    }
+
+    this.on('destroy', () => {
+      if (snap.loop) {
+        let children = this.scroller.children
+        if (children.length > 2) {
+          removeChild(this.scroller, children[children.length - 1])
+          removeChild(this.scroller, children[0])
+        }
+      }
+    })
+  }
+
+  BScroll.prototype._checkSnapLoop = function () {
+    const snap = this.options.snap
+
+    if (!snap.loop || !this.pages || !this.pages.length) {
+      return
+    }
+
+    if (this.pages.length > 1) {
+      snap._loopX = true
+    }
+    if (this.pages[0] && this.pages[0].length > 1) {
+      snap._loopY = true
+    }
+    if (snap._loopX && snap._loopY) {
+      warn('Loop does not support two direction at the same time.')
     }
   }
 
@@ -153,14 +198,14 @@ export function snapMixin(BScroll) {
       return this.currentPage
     }
 
-    if (x > 0) {
-      x = 0
+    if (x > this.minScrollX) {
+      x = this.minScrollX
     } else if (x < this.maxScrollX) {
       x = this.maxScrollX
     }
 
-    if (y > 0) {
-      y = 0
+    if (y > this.minScrollY) {
+      y = this.minScrollY
     } else if (y < this.maxScrollY) {
       y = this.maxScrollY
     }
@@ -215,12 +260,23 @@ export function snapMixin(BScroll) {
     }
   }
 
-  BScroll.prototype.goToPage = function (x, y, time, easing = ease.bounce) {
+  BScroll.prototype._goToPage = function (x, y = 0, time, easing) {
     const snap = this.options.snap
+
+    if (!snap || !this.pages || !this.pages.length) {
+      return
+    }
+
+    easing = easing || snap.easing || ease.bounce
+
     if (x >= this.pages.length) {
       x = this.pages.length - 1
     } else if (x < 0) {
       x = 0
+    }
+
+    if (!this.pages[x]) {
+      return
     }
 
     if (y >= this.pages[x].length) {
@@ -247,7 +303,41 @@ export function snapMixin(BScroll) {
     this.scrollTo(posX, posY, time, easing)
   }
 
+  BScroll.prototype.goToPage = function (x, y, time, easing) {
+    const snap = this.options.snap
+    if (!snap || !this.pages || !this.pages.length) {
+      return
+    }
+
+    if (snap.loop) {
+      let len
+      if (snap._loopX) {
+        len = this.pages.length - 2
+        if (x >= len) {
+          x = len - 1
+        } else if (x < 0) {
+          x = 0
+        }
+        x += 1
+      } else {
+        len = this.pages[0].length - 2
+        if (y >= len) {
+          y = len - 1
+        } else if (y < 0) {
+          y = 0
+        }
+        y += 1
+      }
+    }
+    this._goToPage(x, y, time, easing)
+  }
+
   BScroll.prototype.next = function (time, easing) {
+    const snap = this.options.snap
+    if (!snap) {
+      return
+    }
+
     let x = this.currentPage.pageX
     let y = this.currentPage.pageY
 
@@ -257,10 +347,15 @@ export function snapMixin(BScroll) {
       y++
     }
 
-    this.goToPage(x, y, time, easing)
+    this._goToPage(x, y, time, easing)
   }
 
   BScroll.prototype.prev = function (time, easing) {
+    const snap = this.options.snap
+    if (!snap) {
+      return
+    }
+
     let x = this.currentPage.pageX
     let y = this.currentPage.pageY
 
@@ -270,10 +365,28 @@ export function snapMixin(BScroll) {
       y--
     }
 
-    this.goToPage(x, y, time, easing)
+    this._goToPage(x, y, time, easing)
   }
 
   BScroll.prototype.getCurrentPage = function () {
-    return this.options.snap && this.currentPage
+    const snap = this.options.snap
+    if (!snap) {
+      return null
+    }
+
+    if (snap.loop) {
+      let currentPage
+      if (snap._loopX) {
+        currentPage = extend({}, this.currentPage, {
+          pageX: this.currentPage.pageX - 1
+        })
+      } else {
+        currentPage = extend({}, this.currentPage, {
+          pageY: this.currentPage.pageY - 1
+        })
+      }
+      return currentPage
+    }
+    return this.currentPage
   }
 }

@@ -1,6 +1,12 @@
-let elementStyle = document.createElement('div').style
+import { inBrowser, isWeChatDevTools } from './env'
+import { extend } from './lang'
+
+let elementStyle = inBrowser && document.createElement('div').style
 
 let vendor = (() => {
+  if (!inBrowser) {
+    return false
+  }
   let transformNames = {
     webkit: 'webkitTransform',
     Moz: 'MozTransform',
@@ -24,6 +30,9 @@ function prefixStyle(style) {
   }
 
   if (vendor === 'standard') {
+    if (style === 'transitionEnd') {
+      return 'transitionend'
+    }
     return style
   }
 
@@ -54,18 +63,31 @@ export function offset(el) {
   }
 }
 
-let transform = prefixStyle('transform')
+export function offsetToBody(el) {
+  let rect = el.getBoundingClientRect()
 
-export const hasPerspective = prefixStyle('perspective') in elementStyle
-export const hasTouch = 'ontouchstart' in window
+  return {
+    left: -(rect.left + window.pageXOffset),
+    top: -(rect.top + window.pageYOffset)
+  }
+}
+
+export const cssVendor = (vendor && vendor !== 'standard') ? '-' + vendor.toLowerCase() + '-' : ''
+
+let transform = prefixStyle('transform')
+let transition = prefixStyle('transition')
+
+export const hasPerspective = inBrowser && prefixStyle('perspective') in elementStyle
+// fix issue #361
+export const hasTouch = inBrowser && ('ontouchstart' in window || isWeChatDevTools)
 export const hasTransform = transform !== false
-export const hasTransition = prefixStyle('transition') in elementStyle
+export const hasTransition = inBrowser && transition in elementStyle
 
 export const style = {
   transform,
+  transition,
   transitionTimingFunction: prefixStyle('transitionTimingFunction'),
   transitionDuration: prefixStyle('transitionDuration'),
-  transitionProperty: prefixStyle('transitionProperty'),
   transitionDelay: prefixStyle('transitionDelay'),
   transformOrigin: prefixStyle('transformOrigin'),
   transitionEnd: prefixStyle('transitionEnd')
@@ -86,7 +108,7 @@ export const eventType = {
 
 export function getRect(el) {
   if (el instanceof window.SVGElement) {
-    var rect = el.getBoundingClientRect()
+    let rect = el.getBoundingClientRect()
     return {
       top: rect.top,
       left: rect.left,
@@ -120,16 +142,50 @@ export function tap(e, eventName) {
   e.target.dispatchEvent(ev)
 }
 
-export function click(e) {
-  var target = e.target
-
-  if (!(/(SELECT|INPUT|TEXTAREA)/i).test(target.tagName)) {
-    let ev = document.createEvent(window.MouseEvent ? 'MouseEvents' : 'Event')
-    // cancelable 设置为 false 是为了解决和 fastclick 冲突问题
-    ev.initEvent('click', true, false)
-    ev._constructed = true
-    target.dispatchEvent(ev)
+export function click(e, event = 'click') {
+  let eventSource
+  if (e.type === 'mouseup' || e.type === 'mousecancel') {
+    eventSource = e
+  } else if (e.type === 'touchend' || e.type === 'touchcancel') {
+    eventSource = e.changedTouches[0]
   }
+  let posSrc = {}
+  if (eventSource) {
+    posSrc.screenX = eventSource.screenX || 0
+    posSrc.screenY = eventSource.screenY || 0
+    posSrc.clientX = eventSource.clientX || 0
+    posSrc.clientY = eventSource.clientY || 0
+  }
+  let ev
+  const bubbles = true
+  const cancelable = true
+  if (typeof MouseEvent !== 'undefined') {
+    try {
+      ev = new MouseEvent(event, extend({
+        bubbles,
+        cancelable
+      }, posSrc))
+    } catch (e) {
+      createEvent()
+    }
+  } else {
+    createEvent()
+  }
+
+  function createEvent() {
+    ev = document.createEvent('Event')
+    ev.initEvent(event, bubbles, cancelable)
+    extend(ev, posSrc)
+  }
+
+  // forwardedTouchEvent set to true in case of the conflict with fastclick
+  ev.forwardedTouchEvent = true
+  ev._constructed = true
+  e.target.dispatchEvent(ev)
+}
+
+export function dblclick(e) {
+  click(e, 'dblclick')
 }
 
 export function prepend(el, target) {
@@ -142,4 +198,8 @@ export function prepend(el, target) {
 
 export function before(el, target) {
   target.parentNode.insertBefore(el, target)
+}
+
+export function removeChild(el, child) {
+  el.removeChild(child)
 }

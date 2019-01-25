@@ -2,6 +2,7 @@ import BScroll from 'scroll/index'
 
 describe('BScroll - wheel', () => {
   let wheels = []
+  let wrapper = null
   beforeEach(() => {
     let style = document.createElement('style')
     style.type = 'text/css'
@@ -30,7 +31,7 @@ describe('BScroll - wheel', () => {
     style.appendChild(document.createTextNode(styleSheet))
     document.head.appendChild(style)
 
-    const wrapper = document.createElement('div')
+    wrapper = document.createElement('div')
     wrapper.className = 'wheel-wrapper'
     const listArr = []
     document.body.appendChild(wrapper)
@@ -42,7 +43,7 @@ describe('BScroll - wheel', () => {
       const scroller = document.createElement('div')
       scroller.className = 'wheel'
       for (let i = 0; i < 100; i++) {
-        ulHTML += `<li>${i}</li>`
+        ulHTML += `<li class="wheel-item">${i}</li>`
       }
       ul.innerHTML = ulHTML
       listArr.push(ul)
@@ -58,7 +59,13 @@ describe('BScroll - wheel', () => {
   })
   afterEach(() => {
     wheels = []
+    wrapper = null
     document.body.removeChild(document.querySelector('.wheel-wrapper'))
+  })
+  it('the wheel wrapper class name should be use default value', () => {
+    const wheel = wheels[0]
+    expect(wheel.options.wheel.wheelWrapperClass).to.equal('wheel-scroll')
+    expect(wheel.options.wheel.wheelItemClass).to.equal('wheel-item')
   })
   it('wheelTo', () => {
     const wheel = wheels[0]
@@ -76,5 +83,14 @@ describe('BScroll - wheel', () => {
       .to.equal(2)
     expect(thirdWheel.getSelectedIndex())
       .to.equal(2)
+  })
+  it('it will report warning when wheel.getSelectedIndex is undefined', () => {
+    const firstWheel = new BScroll(wrapper.children[0], {
+      wheel: {
+        selectedIndex: undefined
+      },
+      probeType: 3
+    })
+    expect(firstWheel.options.startY).to.equal(0)
   })
 })

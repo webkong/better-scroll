@@ -6,6 +6,9 @@ module.exports = {
 	},
 	// https://github.com/feross/standard/blob/master/RULES.md#javascript-standard-style
 	extends: 'standard',
+  env: {
+    browser: true,
+  },
 	// required to lint *.vue files
 	plugins: [
 		'html'
@@ -17,7 +20,9 @@ module.exports = {
 		// allow debugger during development
 		'no-debugger': process.env.NODE_ENV === 'production' ? 2 : 0,
 		'indent': 0,
+    'no-tabs': 0,
 		'space-before-function-paren': 0,
-		'eol-last': 0
+    'eol-last': 0,
+    'no-unused-expressions': 0
 	}
 };

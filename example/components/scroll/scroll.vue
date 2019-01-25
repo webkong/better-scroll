@@ -1,11 +1,13 @@
 <template>
   <div ref="wrapper" class="list-wrapper">
     <div class="scroll-content">
-      <slot>
-        <ul ref="list" class="list-content">
-          <li @click="clickItem($event,item)" class="list-item" v-for="item in data">{{item}}</li>
-        </ul>
-      </slot>
+      <div ref="listWrapper">
+        <slot>
+          <ul class="list-content">
+            <li @click="clickItem($event,item)" class="list-item" v-for="item in data">{{item}}</li>
+          </ul>
+        </slot>
+      </div>
       <slot name="pullup"
             :pullUpLoad="pullUpLoad"
             :isPullUpLoad="isPullUpLoad"
@@ -24,7 +26,7 @@
           :pullDownRefresh="pullDownRefresh"
           :pullDownStyle="pullDownStyle"
           :beforePullDown="beforePullDown"
-          :pulling="pulling"
+          :isPullingDown="isPullingDown"
           :bubbleY="bubbleY"
     >
       <div ref="pulldown" class="pulldown-wrapper" :style="pullDownStyle" v-if="pullDownRefresh">
@@ -32,7 +34,7 @@
           <bubble :y="bubbleY"></bubble>
         </div>
         <div class="after-trigger" v-else>
-          <div v-if="pulling" class="loading">
+          <div v-if="isPullingDown" class="loading">
             <loading></loading>
           </div>
           <div v-else><span>{{refreshTxt}}</span></div>
@@ -77,6 +79,10 @@
         type: Boolean,
         default: false
       },
+      listenScrollEnd: {
+        type: Boolean,
+        default: false
+      },
       direction: {
         type: String,
         default: DIRECTION_V
@@ -104,6 +110,16 @@
       freeScroll: {
         type: Boolean,
         default: false
+      },
+      mouseWheel: {
+        type: Boolean,
+        default: false
+      },
+      bounce: {
+        default: true
+      },
+      zoom: {
+        default: false
       }
     },
     data() {
@@ -111,7 +127,6 @@
         beforePullDown: true,
         isRebounding: false,
         isPullingDown: false,
-        pulling: false,
         isPullUpLoad: false,
         pullUpDirty: true,
         pullDownStyle: '',
@@ -120,14 +135,14 @@
     },
     computed: {
       pullUpTxt() {
-        const moreTxt = this.pullUpLoad && this.pullUpLoad.txt && this.pullUpLoad.txt.more || this.$i18n.t('scrollComponent.defaultLoadTxtMore')
+        const moreTxt = (this.pullUpLoad && this.pullUpLoad.txt && this.pullUpLoad.txt.more) || this.$i18n.t('scrollComponent.defaultLoadTxtMore')
 
-        const noMoreTxt = this.pullUpLoad && this.pullUpLoad.txt && this.pullUpLoad.txt.noMore || this.$i18n.t('scrollComponent.defaultLoadTxtNoMore')
+        const noMoreTxt = (this.pullUpLoad && this.pullUpLoad.txt && this.pullUpLoad.txt.noMore) || this.$i18n.t('scrollComponent.defaultLoadTxtNoMore')
 
         return this.pullUpDirty ? moreTxt : noMoreTxt
       },
       refreshTxt() {
-        return this.pullDownRefresh && this.pullDownRefresh.txt || this.$i18n.t('scrollComponent.defaultRefreshTxt')
+        return (this.pullDownRefresh && this.pullDownRefresh.txt) || this.$i18n.t('scrollComponent.defaultRefreshTxt')
       }
     },
     created() {
@@ -138,13 +153,16 @@
         this.initScroll()
       }, 20)
     },
+    destroyed() {
+      this.$refs.scroll && this.$refs.scroll.destroy()
+    },
     methods: {
       initScroll() {
         if (!this.$refs.wrapper) {
           return
         }
-        if (this.$refs.list && (this.pullDownRefresh || this.pullUpLoad)) {
-          this.$refs.list.style.minHeight = `${getRect(this.$refs.wrapper).height + 1}px`
+        if (this.$refs.listWrapper && (this.pullDownRefresh || this.pullUpLoad)) {
+          this.$refs.listWrapper.style.minHeight = `${getRect(this.$refs.wrapper).height + 1}px`
         }
 
         let options = {
@@ -156,7 +174,10 @@
           pullDownRefresh: this.pullDownRefresh,
           pullUpLoad: this.pullUpLoad,
           startY: this.startY,
-          freeScroll: this.freeScroll
+          freeScroll: this.freeScroll,
+          mouseWheel: this.mouseWheel,
+          bounce: this.bounce,
+          zoom: this.zoom
         }
 
         this.scroll = new BScroll(this.$refs.wrapper, options)
@@ -167,9 +188,19 @@
           })
         }
 
+        if (this.listenScrollEnd) {
+          this.scroll.on('scrollEnd', (pos) => {
+            this.$emit('scroll-end', pos)
+          })
+        }
+
         if (this.listenBeforeScroll) {
           this.scroll.on('beforeScrollStart', () => {
             this.$emit('beforeScrollStart')
+          })
+
+          this.scroll.on('scrollStart', () => {
+            this.$emit('scroll-start')
           })
         }
 
@@ -193,6 +224,9 @@
       scrollTo() {
         this.scroll && this.scroll.scrollTo.apply(this.scroll, arguments)
       },
+      autoPullDownRefresh () {
+        this.scroll && this.scroll.autoPullDownRefresh()
+      },
       scrollToElement() {
         this.scroll && this.scroll.scrollToElement.apply(this.scroll, arguments)
       },
@@ -205,7 +239,7 @@
       },
       forceUpdate(dirty) {
         if (this.pullDownRefresh && this.isPullingDown) {
-          this.pulling = false
+          this.isPullingDown = false
           this._reboundPullDown().then(() => {
             this._afterPullDown()
           })
@@ -222,11 +256,13 @@
         this.scroll.on('pullingDown', () => {
           this.beforePullDown = false
           this.isPullingDown = true
-          this.pulling = true
           this.$emit('pullingDown')
         })
 
         this.scroll.on('scroll', (pos) => {
+          if (!this.pullDownRefresh) {
+            return
+          }
           if (this.beforePullDown) {
             this.bubbleY = Math.max(0, pos.y + this.pullDownInitTop)
             this.pullDownStyle = `top:${Math.min(pos.y + this.pullDownInitTop, 10)}px`
@@ -251,7 +287,6 @@
           setTimeout(() => {
             this.isRebounding = true
             this.scroll.finishPullDown()
-            this.isPullingDown = false
             resolve()
           }, stopTime)
         })
@@ -277,18 +312,22 @@
       Bubble
     }
   }
-
 </script>
 
 <style lang="stylus" rel="stylesheet/stylus">
   .list-wrapper
-    position: absolute
-    left: 0
-    top: 0
-    right: 0
-    bottom: 0
+    position: relative
+    height: 100%
+    /*position: absolute*/
+    /*left: 0*/
+    /*top: 0*/
+    /*right: 0*/
+    /*bottom: 0*/
     overflow: hidden
     background: #fff
+    .scroll-content
+      position: relative
+      z-index: 1
     .list-content
       position: relative
       z-index: 10

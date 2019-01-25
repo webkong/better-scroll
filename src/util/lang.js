@@ -11,3 +11,11 @@ export function extend(target, ...rest) {
   }
   return target
 }
+
+export function isUndef(v) {
+  return v === undefined || v === null
+}
+
+export function getDistance(x, y) {
+  return Math.sqrt(x * x + y * y)
+}

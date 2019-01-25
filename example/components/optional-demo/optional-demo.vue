@@ -18,9 +18,7 @@
           </div>
           <div class="demo">
             <div class="title sub">Demo</div>
-            <div class="scroll-list-wrap">
-              <slot name="demo"></slot>
-            </div>
+            <slot name="demo"></slot>
           </div>
           <div class="methods">
             <div class="title sub">Methods</div>
@@ -100,7 +98,8 @@
           color: $color-main
       .page-content
         flex: 1 0 95%
-        overflow scroll
+        overflow: auto
+        -webkit-overflow-scrolling: touch
         .title
           font-size: 1.5rem
           font-weight: 500
@@ -146,9 +145,9 @@
             @media screen and (max-width: 42rem)
               flex: 0 0 100%
               margin-bottom: 1rem
-
             .scroll-list-wrap
               position relative
+              height: 200px
               @media screen and (min-width: 42rem)
                 height: 30rem
               @media screen and (max-width: 42rem)

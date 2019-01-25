@@ -97,6 +97,7 @@ describe('BScroll - snap', () => {
         threshold: 0.3,
         speed: 400
       },
+      startX: 0,
       click: true
     })
   })
@@ -143,6 +144,14 @@ describe('BScroll - snap', () => {
         .to.equal(1)
       scroll.prev()
       scroll.goToPage(2, 0)
+      expect(scroll.currentPage.pageX)
+        .to.equal(2)
+      scroll.pages = undefined
+      scroll.goToPage(1, 0)
+      expect(scroll.currentPage.pageX)
+        .to.equal(2)
+      scroll.pages = []
+      scroll.goToPage(1, 0)
       expect(scroll.currentPage.pageX)
         .to.equal(2)
       done()

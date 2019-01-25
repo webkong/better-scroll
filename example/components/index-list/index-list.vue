@@ -158,7 +158,7 @@
         } else if (index > this.listHeight.length - 2) {
           index = this.listHeight.length - 2
         }
-        this.$refs.indexList.scrollToElement(this.$refs.listGroup[index], 0)
+        this.$refs.indexList.scrollToElement(this.$refs.listGroup[index], 100)
         this.scrollY = this.$refs.indexList.scroll.y
       }
     },
@@ -247,6 +247,7 @@
           background: $color-active-light-gray
     .index-list-fixed
       position: absolute
+      z-index: 1
       top: 0
       left: 0
       width: 100%
